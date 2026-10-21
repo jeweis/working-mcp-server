@@ -55,6 +55,8 @@ npm run dist:win
 
 Windows 构建机需安装完整 Git for Windows（包含 Bash），默认从 `C:\Program Files\Git` 打包，可通过 `WORKING_BUILD_GIT_ROOT` 指定。macOS 使用 dugite 内置 Git，ripgrep 由 npm 包提供。最终用户无需安装这些工具。
 
+CI 使用 uv 管理的 Python。cryptography 50+ 不再提供 Intel macOS wheel；Intel 构建需要 Rust 和 Homebrew OpenSSL（GitHub runner 已提供），通过 `OPENSSL_STATIC=1` 和 `OPENSSL_DIR` 静态链接，避免打包后与 Python 的 OpenSSL 动态库重名冲突。自行在 Intel Mac 构建时也需设置这两个变量，并清理以前的 cryptography 构建缓存后重新安装依赖。
+
 `desktop:prepare` 会下载当前平台的 OpenAI 官方最新 tunnel-client，按同一发布的 SHA256SUMS 校验，并附带 cloudflared 和许可文件。下载失败或校验失败会中止打包。
 
 项目自身使用 MIT；第三方组件保留各自许可。当前不配置 Windows 签名、macOS 开发者签名或公证，发布工作流也不会自动绕过系统校验。
