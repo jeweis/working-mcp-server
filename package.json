@@ -1,0 +1,29 @@
+{
+  "name": "working-mcp-desktop",
+  "version": "0.1.0",
+  "description": "Working MCP desktop manager",
+  "private": true,
+  "main": "desktop/main.cjs",
+  "author": "Jewei",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test desktop/test/*.test.cjs",
+    "backend:build": "uv run python scripts/build_backend.py",
+    "desktop:prepare": "npm run tunnel:fetch && node scripts/prepare_desktop.cjs",
+    "pack": "npm run backend:build && npm run desktop:prepare && electron-builder --dir",
+    "dist": "npm run backend:build && npm run desktop:prepare && electron-builder",
+    "dist:mac": "npm run dist -- --mac",
+    "dist:win": "npm run dist -- --win",
+    "postinstall": "node node_modules/electron/install.js",
+    "backend:smoke": "node scripts/smoke_backend.cjs",
+    "tunnel:fetch": "uv run python scripts/fetch_tunnel_client.py",
+    "tunnel:smoke": "node scripts/smoke_tunnel.cjs"
+  },
+  "devDependencies": {
+    "@vscode/ripgrep": "1.18.0",
+    "dugite": "3.3.0",
+    "electron": "45.0.0",
+    "electron-builder": "26.15.3"
+  }
+}

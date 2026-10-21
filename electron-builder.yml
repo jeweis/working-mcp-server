@@ -1,0 +1,39 @@
+appId: com.jewei.workingmcp
+productName: Working MCP
+asar: true
+electronDist: node_modules/electron/dist
+directories:
+  output: release
+files:
+  - desktop/**/*.cjs
+  - '!desktop/test/**'
+  - package.json
+  - LICENSE
+extraResources:
+  - from: build/desktop-resources/tunnel
+    to: tunnel
+  - from: build/desktop-resources/backend
+    to: backend
+  - from: build/desktop-resources/tools
+    to: tools
+  - from: build/desktop-resources/licenses
+    to: licenses
+mac:
+  icon: desktop/assets/icon.icns
+  category: public.app-category.developer-tools
+  identity: null
+  target:
+    - dmg
+    - zip
+win:
+  icon: desktop/assets/icon.ico
+  target:
+    - nsis
+    - portable
+nsis:
+  artifactName: Working-MCP-${version}-win-${arch}-setup.${ext}
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+portable:
+  artifactName: Working-MCP-${version}-win-${arch}-portable.${ext}
+artifactName: Working-MCP-${version}-${os}-${arch}.${ext}

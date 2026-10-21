@@ -1,0 +1,167 @@
+name: Release desktop apps
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Serialize version allocation and publishing. Tag creation does not need to
+# trigger another workflow (GITHUB_TOKEN pushes do not trigger push workflows).
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  version:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Choose release version
+        id: version
+        run: python scripts/release_version.py
+
+  package:
+    needs: version
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: mac
+            arch: arm64
+          - os: macos-15-intel
+            platform: mac
+            arch: x64
+          - os: windows-latest
+            platform: win
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: '3.12'
+      - run: uv sync --locked
+      - run: npm ci
+      - name: Set build version
+        run: |
+          npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version --ignore-scripts
+          uv version "$RELEASE_VERSION" --offline --no-sync
+      - run: npm run backend:build
+      - run: npm run desktop:prepare
+      - name: Add bundled tools to test PATH
+        run: |
+          node - <<'JS'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = path.resolve('build/desktop-resources/tools');
+          const paths = [root, path.join(root, 'git', 'bin')];
+          if (process.platform === 'win32') paths.push(path.join(root, 'git', 'usr', 'bin'));
+          fs.appendFileSync(process.env.GITHUB_PATH, paths.join('\n') + '\n');
+          JS
+      - name: Test
+        run: |
+          uv run pytest -q
+          npm test
+      - run: npm run backend:smoke
+      - run: npm run tunnel:smoke
+      - name: Build installers
+        run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.platform }}-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+
+  release:
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          path: installers
+          merge-multiple: true
+      - name: Verify assets and generate checksums
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          root = Path('installers')
+          prefix = 'Working-MCP-' + os.environ['RELEASE_VERSION']
+          expected = {
+              prefix + '-mac-arm64.dmg', prefix + '-mac-arm64.zip',
+              prefix + '-mac-x64.dmg', prefix + '-mac-x64.zip',
+              prefix + '-win-x64-setup.exe', prefix + '-win-x64-portable.exe',
+          }
+          actual = {p.name for p in root.iterdir() if p.is_file()}
+          if actual != expected:
+              raise SystemExit(f'Unexpected installer set: missing={expected-actual}, extra={actual-expected}')
+          with (root / 'SHA256SUMS.txt').open('w') as output:
+              for name in sorted(expected):
+                  with (root / name).open('rb') as stream:
+                      digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+                  output.write(f'{digest}  {name}\n')
+          PY
+      - name: Create tag and publish complete release
+        run: |
+          set -euo pipefail
+          # Query errors must fail the job; do not confuse permission/network
+          # failures with a missing release. Listing includes our draft releases.
+          existing=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | if .draft then \"draft\" else \"published\" end")
+          if [[ "$existing" == "published" ]]; then
+            echo "$RELEASE_TAG is already published; leaving its downloads unchanged."
+            exit 0
+          fi
+          ref=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$RELEASE_TAG" --jq ".[] | select(.ref == \"refs/tags/$RELEASE_TAG\") | .ref")
+          if [[ -z "$ref" ]]; then
+            gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$RELEASE_TAG" -f sha="$GITHUB_SHA"
+          else
+            tagged_sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
+            [[ "$tagged_sha" == "$GITHUB_SHA" ]] || { echo "Tag points to a different commit"; exit 1; }
+          fi
+          if [[ -z "$existing" ]]; then
+            gh release create "$RELEASE_TAG" --verify-tag --title "Working MCP $RELEASE_TAG" --generate-notes --draft
+          fi
+          gh release upload "$RELEASE_TAG" installers/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
+          echo "Released: https://github.com/$GH_REPO/releases/tag/$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
