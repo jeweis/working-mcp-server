@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import uuid
@@ -41,7 +42,13 @@ class Processes:
         env = os.environ.copy()
         env.pop('WORKING_MCP_API_KEY', None)
         env.pop('WORKING_MCP_ADMIN_TOKEN', None)
-        child = await asyncio.create_subprocess_exec('bash', '--noprofile', '--norc', '-c', command,
+        # Windows CreateProcess searches System32 before PATH for a bare name,
+        # where bash.exe may be the WSL launcher. Resolve our bundled Git Bash
+        # first and pass its absolute path so WSL is never chosen implicitly.
+        bash = shutil.which('bash')
+        if not bash:
+            raise ValueError('Bash is unavailable; install Git Bash or use the desktop application')
+        child = await asyncio.create_subprocess_exec(bash, '--noprofile', '--norc', '-c', command,
             cwd=cwd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
             stdin=asyncio.subprocess.DEVNULL,
             **({'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {'start_new_session': True}))
