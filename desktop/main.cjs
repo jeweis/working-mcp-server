@@ -4,6 +4,10 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { Tunnel } = require('./tunnel.cjs');
 const { Backend } = require('./backend.cjs');
+const { Updates } = require('./updates.cjs');
+const startedAt=Date.now();
+let updates;
+let updateTimer;
 
 app.setName('Working MCP');
 if (process.env.WORKING_DESKTOP_DATA_DIR) {
@@ -25,6 +29,7 @@ else {
     event.preventDefault();
     if (quitting) return;
     quitting = true;
+    clearInterval(updateTimer);
     Promise.resolve(tunnel?.stop()).catch(() => {}).then(() => backend?.stop()).catch(() => {}).finally(() => { cleanupFinished = true; app.quit(); });
   });
   app.whenReady().then(start).catch(error => {
@@ -59,10 +64,13 @@ async function start() {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false,
       contextIsolation: true, sandbox: true, webSecurity: true }
   });
+  await window.loadFile(path.join(__dirname,'startup.html'));
+  window.show();
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ label: 'Working MCP', submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }] }] : []),
     { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
-    { label: '窗口', submenu: [{ role: 'reload' }, { role: 'minimize' }, { role: 'close' }] }
+    { label: '窗口', submenu: [{ role: 'reload' }, { role: 'minimize' }, { role: 'close' }] },
+    { label: '帮助', submenu: [{ label:'检查更新…', click:()=>updates?.check().catch(()=>{}) }] }
   ]));
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -95,6 +103,19 @@ async function start() {
       try { await tunnel.start(); } catch (error) { tunnel.message = error.message; tunnel.phase = 'error'; }
     }
     return result;
+  });
+  ipcMain.handle('working:updates', async (event, action, payload) => {
+    trusted(event);
+    if (!updates) throw new Error('更新管理尚未就绪');
+    switch(action) {
+      case 'state': return updates.snapshot();
+      case 'check': return updates.check();
+      case 'download': return updates.download();
+      case 'install': return updates.install();
+      case 'settings': return updates.configure(payload);
+      case 'release': return shell.openExternal(updates.snapshot().releaseUrl);
+      default: throw new Error('Invalid update action');
+    }
   });
   ipcMain.handle('working:directory', async event => {
     trusted(event);
@@ -138,8 +159,30 @@ async function start() {
   tunnel = new Tunnel({directory:path.join(dataDirectory, 'tunnel'),
     binary:path.join(resources, 'tunnel', process.platform === 'win32' ? 'tunnel-client.exe' : 'tunnel-client'),
     storage:safeStorage, getMcpKey:async () => (await backend.request('/api/credentials')).api_key, origin});
+  let kind=process.platform==='darwin' ? 'mac' : process.env.PORTABLE_EXECUTABLE_FILE ? 'portable' : fs.existsSync(path.join(path.dirname(process.execPath),'Uninstall Working MCP.exe')) ? 'installed' : 'zip';
+  let macSigned=false;
+  if (process.platform==='darwin' && app.isPackaged) {
+    try {
+      const {spawnSync}=require('node:child_process');
+      const signature=spawnSync('/usr/bin/codesign',['-dv','--verbose=2',path.resolve(path.dirname(process.execPath),'../..')],{encoding:'utf8'});
+      macSigned=/^TeamIdentifier=(?!not set)[A-Z0-9]+$/m.test(signature.stderr || '');
+    } catch {}
+  }
+  const engine=app.isPackaged && (kind==='installed' || macSigned) ? require('electron-updater').autoUpdater : null;
+  if (engine && process.platform==='darwin') engine.channel='latest-'+process.arch;
+  updates=new Updates({currentVersion:app.getVersion(),platform:process.platform,arch:process.arch,kind,
+    directory:path.join(dataDirectory,'updates'),engine,
+    openFile:async file=>{const error=await shell.openPath(file);if(error) throw new Error(error);},
+    showFile:file=>shell.showItemInFolder(file),
+    beforeInstall:async()=>{await tunnel.stop();await backend.stop();}
+  });
   await window.loadURL(origin + '/admin');
   window.show();
+  if (app.isPackaged && process.env.WORKING_DESKTOP_SMOKE!=='1') {
+    if (updates.preferences.autoCheck) updates.check().catch(()=>{});
+    updateTimer=setInterval(()=>{if(updates.preferences.autoCheck) updates.check().catch(()=>{});},6*60*60*1000);
+    updateTimer.unref();
+  }
   if (tunnel.settings.autoStart && tunnel.key) {
     tunnel.start().catch(error => { tunnel.phase = 'error'; tunnel.message = error.message; });
   }
@@ -153,10 +196,16 @@ async function start() {
         loginOpen: document.getElementById('login-dialog').open,
         settingsVisible: !document.getElementById('desktop-settings').hidden,
         tunnelAvailable: (await window.workingDesktop.tunnel('state')).available,
-        tunnelPagePresent: !!document.getElementById('tunnel-view')};
+        tunnelPagePresent: !!document.getElementById('tunnel-view'),
+        versionVisible: document.getElementById('app-version').textContent,
+        updateVersion: (await window.workingDesktop.updates('state')).currentVersion};
     })()`);
     if (smoke.tools !== 17 || !smoke.keyGenerated || smoke.loginOpen || !smoke.settingsVisible || !smoke.tunnelAvailable || !smoke.tunnelPagePresent) throw new Error('Desktop smoke failed: ' + JSON.stringify(smoke));
+    smoke.runtime=await require('./smoke.cjs').verifyTools(backend,dataDirectory,resources);
+    smoke.windowVisible=window.isVisible(); smoke.startupMs=Date.now()-startedAt;
+    if (!smoke.windowVisible || !smoke.versionVisible.includes(app.getVersion())) throw new Error('Version/startup UI not ready');
     fs.writeFileSync(path.join(dataDirectory, 'smoke-result.json'), JSON.stringify(smoke));
+    await new Promise(resolve=>setTimeout(resolve,2000));
     app.quit();
   }
 }

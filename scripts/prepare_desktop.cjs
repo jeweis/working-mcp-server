@@ -2,6 +2,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const {keepGitFile,measure} = require('./git_bundle.cjs');
 
 async function main() {
   const root = path.resolve(__dirname, '..');
@@ -27,7 +28,12 @@ async function main() {
     git = path.join(root, 'node_modules', 'dugite', 'git');
     if (!fs.existsSync(path.join(git, 'bin', 'git'))) throw new Error('Embedded Git is missing; run npm ci with download access');
   }
-  fs.cpSync(git, path.join(tools, 'git'), { recursive: true, verbatimSymlinks: true });
+  const before=measure(git);
+  fs.cpSync(git, path.join(tools, 'git'), { recursive: true, verbatimSymlinks: true,
+    ...(process.platform==='win32' ? {filter:file=>keepGitFile(git,file)} : {}) });
+  const after=measure(path.join(tools,'git'));
+  fs.writeFileSync(path.join(destination,'git-bundle-stats.json'),JSON.stringify({before,after},null,2));
+  console.log(`Git payload: ${before.files} → ${after.files} files; ${before.bytes} → ${after.bytes} bytes`);
   const licenses = path.join(destination, 'licenses');
   fs.mkdirSync(licenses, { recursive: true });
   for (const name of ['dugite', '@vscode/ripgrep']) {
@@ -39,6 +45,7 @@ async function main() {
   execFileSync(path.join(tools, 'rg' + suffix), ['--version']);
   execFileSync(path.join(tools, 'git', 'bin', 'git' + suffix), ['--version']);
   if (process.platform === 'win32') execFileSync(path.join(tools, 'git', 'bin', 'bash.exe'), ['--noprofile', '--norc', '-c', 'printf ok']);
+  require('./prepare_windows.cjs').prepare(root);
   console.log('Desktop backend, Git, Bash (Windows) and ripgrep prepared.');
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

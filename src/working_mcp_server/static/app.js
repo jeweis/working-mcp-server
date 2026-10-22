@@ -233,7 +233,7 @@ if (desktop) {
   $('logout').hidden = true;
   $('desktop-settings').hidden = false;
   $('browse-directory').hidden = false;
-  Promise.all([request(), loadCredentials(), initializeTunnel()]).catch(error => toast(error.message, true));
+  Promise.all([request(), loadCredentials(), initializeTunnel(), initializeUpdates()]).catch(error => toast(error.message, true));
 } else login.showModal();
 
 let tunnelState = null;
@@ -311,3 +311,47 @@ $('tunnel-copy-id').addEventListener('click', () => {
 });
 $('tunnel-copy-prompt').addEventListener('click', () => copy('请只使用 Working MCP 插件调用 workspace_current，告诉我当前工作区的名字和绝对路径。不要修改文件或执行命令。后续工具调用请复用返回的 session_id。').then(() => toast('验证提示词已复制')).catch(error => toast(error.message,true)));
 setInterval(() => { if (desktop && !tunnelBusy && !document.hidden && !$('tunnel-view').hidden) refreshTunnel().catch(() => {}); }, 2000);
+
+let updateSnapshot=null;
+async function refreshUpdates() {
+  if (!desktop) return;
+  const data=await desktop.updates('state'); updateSnapshot=data;
+  $('app-version').textContent='v'+data.currentVersion;
+  $('update-message').textContent=data.message;
+  $('update-badge').hidden=!data.available;
+  $('update-notice').hidden=!data.available;
+  $('update-notice').textContent='更新到 v'+(data.latestVersion || '');
+  $('update-badge').textContent='新版本 v'+(data.latestVersion || '');
+  $('update-check').disabled=data.busy || data.phase==='installing';
+  $('update-download').hidden=!data.available || data.downloaded;
+  $('update-download').disabled=data.busy;
+  $('update-install').hidden=!data.downloaded;
+  $('update-install').textContent=data.automaticInstall ? '重启并安装' : data.platform==='darwin' ? '打开更新安装包' : '在文件夹中显示更新';
+  $('update-install').disabled=data.busy || data.phase==='installing';
+  $('update-progress').hidden=data.phase!=='downloading';
+  $('update-progress').value=data.percent;
+  $('update-auto-check').checked=data.preferences.autoCheck;
+  $('update-auto-download').checked=data.preferences.autoDownload;
+  $('update-checked').textContent=data.lastChecked ? '上次检查：'+new Date(data.lastChecked).toLocaleString() : '';
+  $('update-method').textContent=data.automaticInstall ? '下载完成后可重启并安装。安装会停止 MCP Server 和所有托管任务，请先保存工作。' : data.platform==='darwin' ? '当前 macOS 发行包未配置开发者签名：支持自动检查和下载，下载后请打开 DMG、退出旧版本并替换 Applications 中的应用。' : '便携版 / ZIP 版支持自动检查和下载。下载完成后请退出旧版本，再替换 EXE 或解压 ZIP；不要覆盖正在运行的程序。需要重启自动安装时可改用安装版。';
+}
+async function initializeUpdates() { $('update-settings').hidden=false; await refreshUpdates(); }
+for (const action of ['check','download','install','release']) $('update-'+action).addEventListener('click',async()=>{
+  if(action==='install' && updateSnapshot?.automaticInstall) {
+    confirm('安装更新并重启？','这会停止 MCP Server、隧道和所有托管任务。请先保存工作。',()=>runUpdateAction(action));
+    return;
+  }
+  await runUpdateAction(action);
+});
+async function runUpdateAction(action) {
+  try { await desktop.updates(action); } catch(error) { toast(error.message,true); }
+  await refreshUpdates().catch(()=>{});
+}
+for(const id of ['update-auto-check','update-auto-download']) $(id).addEventListener('change',async()=>{
+  try { await desktop.updates('settings',{autoCheck:$('update-auto-check').checked,autoDownload:$('update-auto-download').checked}); }
+  catch(error) { toast(error.message,true); }
+  await refreshUpdates();
+});
+setInterval(()=>{if(desktop && !document.hidden) refreshUpdates().catch(()=>{});},2000);
+
+$('update-notice').addEventListener('click',()=>{ document.querySelector('[data-view="overview"]').click(); $('update-settings').scrollIntoView({behavior:'smooth',block:'start'}); });

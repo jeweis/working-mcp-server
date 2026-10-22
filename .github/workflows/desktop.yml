@@ -103,6 +103,44 @@ jobs:
         run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Keep architecture-specific macOS update metadata
+        if: runner.os == 'macOS'
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          node - <<'JS'
+          const fs=require('node:fs');
+          fs.renameSync('release/latest-mac.yml',`release/latest-${process.env.BUILD_ARCH}-mac.yml`);
+          JS
+      - name: Download previous Windows release for regression comparison
+        if: runner.os == 'Windows'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release download --pattern '*-win-x64-setup.exe' --pattern '*-win-x64-portable.exe' --pattern 'SHA256SUMS.txt' --dir build/baseline-release
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root=Path('build/baseline-release')
+          sums={line.split()[1]:line.split()[0] for line in (root/'SHA256SUMS.txt').read_text().splitlines()}
+          for file in root.glob('*.exe'):
+              with file.open('rb') as stream:
+                  assert hashlib.file_digest(stream,'sha256').hexdigest()==sums[file.name], 'Baseline checksum failed'
+          PY
+      - name: Test actual Windows distributions
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/windows_release_smoke.ps1 -BaselineDirectory build/baseline-release
+      - name: Preserve Windows release test evidence
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-test-evidence
+          path: |
+            build/release-test-evidence/
+            build/desktop-resources/git-bundle-stats.json
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: installers-${{ matrix.platform }}-${{ matrix.arch }}
@@ -112,6 +150,7 @@ jobs:
             release/*.dmg
             release/*.zip
             release/*.exe
+            release/*.yml
 
   release:
     needs: [version, package]
@@ -141,7 +180,8 @@ jobs:
           expected = {
               prefix + '-mac-arm64.dmg', prefix + '-mac-arm64.zip',
               prefix + '-mac-x64.dmg', prefix + '-mac-x64.zip',
-              prefix + '-win-x64-setup.exe', prefix + '-win-x64-portable.exe',
+              prefix + '-win-x64-setup.exe', prefix + '-win-x64-portable.exe', prefix + '-win-x64.zip',
+              'latest.yml', 'latest-arm64-mac.yml', 'latest-x64-mac.yml',
           }
           actual = {p.name for p in root.iterdir() if p.is_file()}
           if actual != expected:

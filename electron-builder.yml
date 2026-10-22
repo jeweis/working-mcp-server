@@ -6,6 +6,8 @@ directories:
   output: release
 files:
   - desktop/**/*.cjs
+  - desktop/*.html
+  - desktop/windows/**
   - '!desktop/test/**'
   - package.json
   - LICENSE
@@ -30,10 +32,17 @@ win:
   target:
     - nsis
     - portable
+    - zip
 nsis:
   artifactName: Working-MCP-${version}-win-${arch}-setup.${ext}
   oneClick: false
   allowToChangeInstallationDirectory: true
+  differentialPackage: false
+  include: desktop/windows/installer.nsh
 portable:
   artifactName: Working-MCP-${version}-win-${arch}-portable.${ext}
 artifactName: Working-MCP-${version}-${os}-${arch}.${ext}
+publish:
+  provider: github
+  owner: jeweis
+  repo: working-mcp-server
