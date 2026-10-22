@@ -36,7 +36,7 @@ async function main() {
   console.log(`Git payload: ${before.files} → ${after.files} files; ${before.bytes} → ${after.bytes} bytes`);
   const licenses = path.join(destination, 'licenses');
   fs.mkdirSync(licenses, { recursive: true });
-  for (const name of ['dugite', '@vscode/ripgrep']) {
+  for (const name of ['dugite', '@vscode/ripgrep', 'app-builder-lib']) {
     const source = path.join(root, 'node_modules', name, 'LICENSE');
     if (fs.existsSync(source)) fs.copyFileSync(source, path.join(licenses, name.replaceAll('/', '-') + '-LICENSE.txt'));
   }

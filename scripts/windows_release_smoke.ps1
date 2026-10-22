@@ -1,13 +1,21 @@
 param([string]$BaselineDirectory = '')
 $ErrorActionPreference = 'Stop'
+if($env:GITHUB_ACTIONS -ne 'true'){throw 'Run this installer regression only on a disposable GitHub Actions Windows runner'}
 $root = Split-Path $PSScriptRoot -Parent
 $evidence = Join-Path $root 'build/release-test-evidence'
 New-Item -ItemType Directory -Force $evidence | Out-Null
 $base = Join-Path $env:TEMP ('wmcp-release-' + [guid]::NewGuid().ToString('N').Substring(0,8))
 New-Item -ItemType Directory -Force $base | Out-Null
 $report = [ordered]@{ cases=@(); isolatedPath=$true; installerUpgrade=$null; uninstall=$null }
+$systemGit=Join-Path $env:ProgramFiles 'Git'
+$disabledGit=Join-Path $env:ProgramFiles ('Git-wmcp-disabled-'+[guid]::NewGuid().ToString('N'))
+$gitMoved=$false
+$sharedData=Join-Path $env:APPDATA 'Working MCP'
+if(Test-Path $sharedData){throw 'Refusing to touch existing Working MCP user data in the test runner'}
+New-Item -ItemType Directory $sharedData | Out-Null
 # Only Windows system utilities remain. The application must supply Git, Bash,
 # coreutils, rg, Python and the complete MCP runtime itself.
+$node=(Get-Command node.exe).Source
 $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
 $env:WORKING_DESKTOP_SMOKE = '1'
 Add-Type @'
@@ -72,10 +80,16 @@ function Install-Case([string]$Setup,[string]$Directory) {
   return $exe.FullName
 }
 try {
-  $compiler=Get-ChildItem (Join-Path $env:LOCALAPPDATA 'electron-builder/Cache/nsis') -Filter makensis.exe -Recurse | Where-Object {$_.Directory.Name -eq 'Bin'} | Select-Object -First 1
-  if(!$compiler){throw 'NSIS compiler missing for low-space regression test'}
+  if(Test-Path $systemGit){Move-Item -LiteralPath $systemGit -Destination $disabledGit; $gitMoved=$true}
+  $report.systemGitUnavailable=!(Test-Path $systemGit)
+  $compilerInfo=& $node (Join-Path $root 'scripts/nsis_info.cjs')
+  if($LASTEXITCODE -ne 0){throw 'Could not resolve the builder NSIS toolset'}
+  $compilerInfo=$compilerInfo | Select-Object -Last 1 | ConvertFrom-Json
+  $compiler=$compilerInfo.path
+  if(!(Test-Path $compiler)){throw 'NSIS compiler missing for low-space regression test'}
+  if($compilerInfo.env.NSISDIR){$env:NSISDIR=$compilerInfo.env.NSISDIR}
   $spaceExe=Join-Path $evidence 'space-check-fixture.exe'
-  & $compiler.FullName "/DTEST_OUT=$spaceExe" (Join-Path $root 'desktop/windows/space-test.nsi')
+  & $compiler "/DTEST_OUT=$spaceExe" (Join-Path $root 'desktop/windows/space-test.nsi')
   if($LASTEXITCODE -ne 0){throw 'Could not build low-space fixture'}
   $space=Start-Process -FilePath $spaceExe -PassThru
   if(!$space.WaitForExit(15000) -or $space.ExitCode -ne 112){throw 'Native disk-space check failed to reject insufficient space'}
@@ -89,7 +103,6 @@ try {
   Start-Case (Join-Path $zipDir 'Working MCP.exe') 'zip'
   Remove-Item $zipDir -Recurse -Force
 
-  $sharedData=Join-Path $base 'upgrade-data'
   $installDir=Join-Path $base 'Working MCP'
   if ($BaselineDirectory -and (Test-Path $BaselineDirectory)) {
     try {
@@ -135,6 +148,8 @@ try {
   $report.uninstall='passed'
   if(!(Test-Path $credential)){throw 'Uninstaller deleted application configuration without permission'}
 } finally {
+  if($gitMoved){Move-Item -LiteralPath $disabledGit -Destination $systemGit}
+  Remove-Item $sharedData -Recurse -Force -ErrorAction SilentlyContinue
   $report | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $evidence 'windows-results.json') -Encoding utf8
   Remove-Item Env:WORKING_DESKTOP_SMOKE -ErrorAction SilentlyContinue
   Remove-Item Env:WORKING_DESKTOP_DATA_DIR -ErrorAction SilentlyContinue

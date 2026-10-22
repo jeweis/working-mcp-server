@@ -8,10 +8,10 @@ function keepGitFile(root,file) {
   if (!rel) return true;
   if (/^(?:\.git|dev|tmp)(?:\/|$)/.test(rel)) return false;
   if (/^(?:git-bash\.exe|git-cmd\.exe|unins\d*\..*|releaseNotes\.html)$/i.test(rel)) return false;
-  if (/^(?:mingw64|usr)\/share\/(?:doc|man|info|locale|git-gui|gitk|gitweb)(?:\/|$)/.test(rel)) return false;
-  if (/^(?:usr|mingw64)\/lib\/(?:tcl\d[^/]*|tk\d[^/]*)(?:\/|$)/.test(rel)) return false;
-  if (/^(?:usr|mingw64)\/bin\/(?:wish|tclsh|git-gui|gitk)(?:[\d.]*)(?:\.exe)?$/.test(rel)) return false;
-  if (/^mingw64\/libexec\/git-core\/(?:git-gui|gitk)(?:\.exe)?$/.test(rel)) return false;
+  if (/^(?:mingw64|ucrt64|usr)\/share\/(?:doc|man|info|locale|git-gui|gitk|gitweb)(?:\/|$)/.test(rel)) return false;
+  if (/^(?:usr|mingw64|ucrt64)\/lib\/(?:tcl\d[^/]*|tk\d[^/]*)(?:\/|$)/.test(rel)) return false;
+  if (/^(?:(?:usr|mingw64|ucrt64)\/bin|cmd)\/(?:wish|tclsh|git-gui|gitk)(?:[\d.]*)(?:\.exe)?$/.test(rel)) return false;
+  if (/^(?:mingw64|ucrt64)\/libexec\/git-core\/(?:git-gui|gitk)(?:\.exe)?$/.test(rel)) return false;
   return true;
 }
 function measure(root) {

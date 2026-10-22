@@ -16,8 +16,8 @@ AutoCloseWindow True
 RequestExecutionLevel ${REQUEST_EXECUTION_LEVEL}
 
 Function .onInit
-  System::Call 'kernel32::CreateMutexW(p0, i0, w "Local\WorkingMCPPortable")p.r0'
-  System::Call 'kernel32::GetLastError()i.r1'
+  System::Call 'kernel32::CreateMutexW(p0, i0, w "Local\WorkingMCPPortable")p.r0 ?e'
+  Pop $1
   ${If} $1 == 183
     MessageBox MB_OK "Working MCP is already preparing or running. Please use the existing window."
     Quit

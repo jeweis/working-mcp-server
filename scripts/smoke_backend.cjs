@@ -13,7 +13,7 @@ const { execFileSync } = require('node:child_process');
     const resources = path.join(root, 'build', 'desktop-resources');
     const executable = path.join(resources, 'backend', process.platform === 'win32' ? 'working-mcp-backend.exe' : 'working-mcp-backend');
     const gitRoot = path.join(resources, 'tools', 'git');
-    const toolsPath = [path.join(resources, 'tools'), path.join(gitRoot, 'bin'), path.join(gitRoot, 'cmd'), path.join(gitRoot, 'mingw64', 'bin'), path.join(gitRoot, 'usr', 'bin'), process.env.PATH].join(path.delimiter);
+    const toolsPath = [path.join(resources, 'tools'), path.join(gitRoot, 'bin'), path.join(gitRoot, 'cmd'), path.join(gitRoot, 'ucrt64', 'bin'), path.join(gitRoot, 'mingw64', 'bin'), path.join(gitRoot, 'usr', 'bin'), process.env.PATH].join(path.delimiter);
     const workspace = path.join(directory, 'project');
     fs.mkdirSync(workspace);
     fs.writeFileSync(path.join(workspace, 'fixture.txt'), 'working fixture');

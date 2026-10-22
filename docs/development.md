@@ -107,13 +107,13 @@ uv run working-mcp-server --read-only
 
 两种 macOS 架构各自发布更新元数据，避免合并 artifacts 时覆盖 `latest-mac.yml`。发布校验和同时覆盖安装包和更新元数据。
 
-Windows Git 通过 `scripts/git_bundle.cjs` 去掉文档、翻译和 GUI 资源，保留 DLL、Bash/coreutils、Git helpers、SSH/TLS 和许可证。构建会记录裁剪前后文件数/字节数。不能用不含 Bash 的 MinGit 直接替代。
+Windows Git 通过 `scripts/git_bundle.cjs` 去掉文档、翻译和 GUI 资源，保留 DLL、Bash/coreutils、Git helpers、SSH/TLS 和许可证；同时兼容旧 mingw64 与新 ucrt64 布局。构建会记录裁剪前后文件数/字节数。不能用不含 Bash 的 MinGit 直接替代。
 
 当前 electron-builder 26.15.3 的 PortableOptions 不支持自定义脚本钩子。`scripts/prepare_windows.cjs` 因此在打包准备时安装仓库中维护的 `desktop/windows/portable.nsi` 模板，并严格检查打包器版本；升级打包器时需要重新审查模板。模板保留 NSIS 原生准备窗口、检查 TEMP 空间，使用每次启动独立的目录，避免删除运行中实例的文件。安装版继续使用标准 NSIS 向导，只添加临时盘和所选目标盘检查。
 
 `scripts/windows_release_smoke.ps1` 在 Windows runner 对实际产物运行：
 
-- 隔离 PATH，移除系统 Git/Bash，验证 ZIP、便携 EXE、安装版的真实窗口、启动耗时和 renderer/backend 就绪结果。
+- 隔离 PATH，并临时移走 runner 的系统 Git（测试结束恢复），验证 ZIP、便携 EXE、安装版的真实窗口、启动耗时和 renderer/backend 就绪结果。
 - 要求便携版在 10 秒内出现原生准备窗口，应用在 240 秒内就绪；结果属于 CI 机器，不能代表所有用户电脑。
 - 独立测上一版便携版和安装版，记录失败，不把旧包的慢启动与安装崩溃混为同一根因。
 - 安装版向导可见性、静默安装、覆盖升级、配置保留、静默卸载。

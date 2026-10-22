@@ -44,12 +44,15 @@ async function start() {
   const resources = app.isPackaged ? process.resourcesPath : path.join(repo, 'build', 'desktop-resources');
   const gitRoot = path.join(resources, 'tools', 'git');
   const paths = [path.join(resources, 'tools'), path.join(gitRoot, 'bin')];
-  if (process.platform === 'win32') paths.push(path.join(gitRoot, 'cmd'), path.join(gitRoot, 'mingw64', 'bin'), path.join(gitRoot, 'usr', 'bin'));
+  if (process.platform === 'win32') paths.push(path.join(gitRoot, 'cmd'), path.join(gitRoot, 'ucrt64', 'bin'), path.join(gitRoot, 'mingw64', 'bin'), path.join(gitRoot, 'usr', 'bin'));
   // Finder-launched apps have a reduced PATH; include conventional developer paths.
   if (process.platform === 'darwin') paths.push('/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin');
   const env = { ...process.env, PATH: [...paths, process.env.PATH || ''].join(path.delimiter) };
   delete env.WORKING_MCP_API_KEY;
-  if (fs.existsSync(path.join(gitRoot, 'libexec', 'git-core'))) env.GIT_EXEC_PATH = path.join(gitRoot, 'libexec', 'git-core');
+  for (const prefix of ['', 'ucrt64', 'mingw64']) {
+    const helpers=path.join(gitRoot,prefix,'libexec','git-core');
+    if(fs.existsSync(helpers)){env.GIT_EXEC_PATH=helpers;break;}
+  }
   let executable, args;
   const frozen = path.join(resources, 'backend', process.platform === 'win32' ? 'working-mcp-backend.exe' : 'working-mcp-backend');
   if (app.isPackaged || process.env.WORKING_DESKTOP_USE_BUNDLE === '1') {

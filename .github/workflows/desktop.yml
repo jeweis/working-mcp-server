@@ -90,7 +90,7 @@ jobs:
           const path = require('node:path');
           const root = path.resolve('build/desktop-resources/tools');
           const paths = [root, path.join(root, 'git', 'bin')];
-          if (process.platform === 'win32') paths.push(path.join(root, 'git', 'usr', 'bin'));
+          if (process.platform === 'win32') paths.push(path.join(root,'git','ucrt64','bin'),path.join(root,'git','mingw64','bin'),path.join(root, 'git', 'usr', 'bin'));
           fs.appendFileSync(process.env.GITHUB_PATH, paths.join('\n') + '\n');
           JS
       - name: Test
