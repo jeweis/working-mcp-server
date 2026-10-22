@@ -143,3 +143,12 @@ Git 裁剪由 9,617 个文件 / 424,014,373 字节减至 7,286 个文件 / 386,3
 仅当 `Release desktop apps` 的三个原生 package job 全部成功、Windows 实包测试成功，但最终发布因网络或文件筛选问题失败时，可手动运行 [`Publish verified build`](../.github/workflows/recover-release.yml)，填入原始 `run_id`。
 
 恢复流程会验证原运行来自本仓库 main、原生测试已成功，下载该运行的 artifacts，严格检查七个安装包和三个更新元数据，重新生成校验文件，并将标签指向**原始测试提交**。不会用未测试的新代码替换既有产物，也不会覆盖已公开的版本。恢复时仅移除旧流程误收集的 `builder-debug.yml`；其他多余文件仍然会阻止发布。
+
+GitHub 有时会拒绝内置 `GITHUB_TOKEN` 给旧提交新建标签（HTTP 403，尤其涉及工作流文件变更时）。这种情况下，由维护者使用已有仓库权限先创建与原运行版本、`head_sha` 一致的标签，再重跑失败的恢复任务：
+
+```bash
+git tag vX.Y.Z <原始构建的 head_sha>
+git push origin vX.Y.Z
+```
+
+不要移动已存在的标签，也无需为此把个人 Token 存入仓库。恢复任务会核对现有标签确实指向原始测试提交；普通 main 自动发布使用当前运行提交，不需要上述手动步骤。
