@@ -1,0 +1,80 @@
+name: Publish verified build
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Desktop release run whose three package jobs succeeded'
+        required: true
+        type: string
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_RUN: ${{ inputs.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate original build and native Windows tests
+        id: source
+        shell: bash
+        run: |
+          [[ "$BUILD_RUN" =~ ^[0-9]+$ ]]
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN" > run.json
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN/jobs?per_page=100" > jobs.json
+          python - <<'PY'
+          import json, os
+          run=json.load(open('run.json'))
+          assert run['head_branch']=='main' and run['head_repository']['full_name']==os.environ['GH_REPO']
+          assert run['path']=='.github/workflows/desktop.yml' and run['status']=='completed'
+          jobs=json.load(open('jobs.json'))['jobs']
+          required=['package (macos-15, mac, arm64)','package (macos-15-intel, mac, x64)','package (windows-latest, win, x64)']
+          for name in required:
+              job=next(j for j in jobs if j['name']==name)
+              assert job['conclusion']=='success', name+' did not succeed'
+              if 'windows' in name:
+                  assert any(s['name']=='Test actual Windows distributions' and s['conclusion']=='success' for s in job['steps'])
+          with open(os.environ['GITHUB_OUTPUT'],'a') as stream:
+              stream.write('sha='+run['head_sha']+'\n')
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          path: installers
+          merge-multiple: true
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify exact artifacts and checksums
+        id: release
+        run: |
+          # Older workflows accidentally included the builder's diagnostic YAML.
+          # Remove only that known diagnostic; reject all other extra files.
+          python -c "from pathlib import Path; Path('installers/builder-debug.yml').unlink(missing_ok=True)"
+          python scripts/release_assets.py
+      - name: Publish original tested commit
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          BUILD_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          existing=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | if .draft then \"draft\" else \"published\" end")
+          [[ "$existing" != "published" ]] || { echo 'Already published; preserving existing downloads.'; exit 0; }
+          ref=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$TAG" --jq ".[] | select(.ref == \"refs/tags/$TAG\") | .ref")
+          if [[ -z "$ref" ]]; then
+            gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$BUILD_SHA"
+          else
+            tagged_sha=$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)
+            [[ "$tagged_sha" == "$BUILD_SHA" ]] || { echo 'Tag points to another commit'; exit 1; }
+          fi
+          if [[ -z "$existing" ]]; then
+            gh release create "$TAG" --verify-tag --title "Working MCP $TAG" --generate-notes --draft
+          fi
+          gh release upload "$TAG" installers/* --clobber
+          gh release edit "$TAG" --draft=false --latest
+          echo "Published verified build $BUILD_RUN: https://github.com/$GH_REPO/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"

@@ -150,7 +150,7 @@ jobs:
             release/*.dmg
             release/*.zip
             release/*.exe
-            release/*.yml
+            release/latest*.yml
 
   release:
     needs: [version, package]
@@ -167,31 +167,11 @@ jobs:
           pattern: installers-*
           path: installers
           merge-multiple: true
+      - uses: actions/checkout@v4
       - name: Verify assets and generate checksums
         env:
           RELEASE_VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          python - <<'PY'
-          import hashlib
-          import os
-          from pathlib import Path
-          root = Path('installers')
-          prefix = 'Working-MCP-' + os.environ['RELEASE_VERSION']
-          expected = {
-              prefix + '-mac-arm64.dmg', prefix + '-mac-arm64.zip',
-              prefix + '-mac-x64.dmg', prefix + '-mac-x64.zip',
-              prefix + '-win-x64-setup.exe', prefix + '-win-x64-portable.exe', prefix + '-win-x64.zip',
-              'latest.yml', 'latest-arm64-mac.yml', 'latest-x64-mac.yml',
-          }
-          actual = {p.name for p in root.iterdir() if p.is_file()}
-          if actual != expected:
-              raise SystemExit(f'Unexpected installer set: missing={expected-actual}, extra={actual-expected}')
-          with (root / 'SHA256SUMS.txt').open('w') as output:
-              for name in sorted(expected):
-                  with (root / name).open('rb') as stream:
-                      digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-                  output.write(f'{digest}  {name}\n')
-          PY
+        run: python scripts/release_assets.py --version "$RELEASE_VERSION"
       - name: Create tag and publish complete release
         run: |
           set -euo pipefail
