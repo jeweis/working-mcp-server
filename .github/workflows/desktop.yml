@@ -80,7 +80,7 @@ jobs:
       - name: Set build version
         run: |
           npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version --ignore-scripts
-          uv version "$RELEASE_VERSION" --offline --no-sync
+          uv version "$RELEASE_VERSION" --no-sync
       - run: npm run backend:build
       - run: npm run desktop:prepare
       - name: Add bundled tools to test PATH
